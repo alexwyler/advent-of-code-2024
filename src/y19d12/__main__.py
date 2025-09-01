@@ -1,6 +1,7 @@
 import pathlib
+from encodings.punycode import T
 from enum import Enum
-from typing import Callable, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 
 class OP(Enum):
@@ -156,52 +157,103 @@ def print_ascii(
         print("".join(line))
 
 
+EMPTY = 0
+WALL = 1
+BLOCK = 2
+PADDLE = 3
+BALL = 4
+
+
+class SparseGrid:
+    def __init__(self) -> None:
+        self._map: Dict[Tuple[int, int], int] = {}
+
+    def get(self, y: int, x: int) -> int:
+        return self._map.get((y, x), 0)
+
+    def set(self, y: int, x: int, value: int) -> None:
+        if value == 0:
+            self._map.pop((y, x), None)
+        else:
+            self._map[(y, x)] = value
+
+    def bounds_square(self) -> Tuple[int, int, int, int]:
+        if not self._map:
+            return (0, 0, 0, 0)
+        ys = [y for (y, _), v in self._map.items() if v != 0]
+        xs = [x for (_, x), v in self._map.items() if v != 0]
+        min_y, max_y = min(ys), max(ys)
+        min_x, max_x = min(xs), max(xs)
+
+        h = max_y - min_y + 1
+        w = max_x - min_x + 1
+        side = max(h, w)
+        return (min_y, min_y + side - 1, min_x, min_x + side - 1)
+
+    def render(self) -> None:
+        min_y, max_y, min_x, max_x = self.bounds_square()
+        ys = range(min_y, max_y + 1)
+
+        for y in ys:
+            row = "".join(str(self.get(x, y)) for x in range(min_x, max_x + 1))
+            print(row)
+        print("")
+
+
 def main() -> int:
 
     input_file = pathlib.Path(__file__).parent / "input.txt"
 
-    painted: List[List[int]] = [[0 for _ in range(101)] for _ in range(101)]
-    panels: List[List[int]] = [[0 for _ in range(101)] for _ in range(101)]
-    cur_loc: Tuple[int, int] = (50, 50)
-    panels[cur_loc[0]][cur_loc[1]] = 1
-    heading: Tuple[int, int] = (-1, 0)
-    out_index = 0
-
-    def turn(heading: Tuple[int, int], dir: int):
-        down, right = heading
-        if dir == 0:
-            return -right, down
-        elif dir == 1:
-            return right, -down
-        else:
-            raise ValueError("direction must be 0 (left) or 1 (right)")
+    screen: SparseGrid = SparseGrid()
 
     def write_in() -> int:
-        nonlocal out_index
-        out_index = 0
-        return panels[cur_loc[0]][cur_loc[1]]
+        if ball_x_y[0] > paddle_x_y[0]:
+            return 1
+        elif ball_x_y[0] < paddle_x_y[0]:
+            return -1
+        else:
+            return 0
+
+    out_index = 0
+    draw_x = 0
+    draw_y = 0
+    tile = 0
+    ball_x_y = (0, 0)
+    paddle_x_y = (0, 0)
 
     def read_out(val: int):
         nonlocal out_index
-        nonlocal heading
-        nonlocal cur_loc
+        nonlocal draw_x
+        nonlocal draw_y
+        nonlocal tile
+        nonlocal ball_x_y
+        nonlocal paddle_x_y
         if out_index == 0:
-            panels[cur_loc[0]][cur_loc[1]] = val
-            painted[cur_loc[0]][cur_loc[1]] = 1
-            print_ascii(panels, cur_loc, heading)
+            draw_x = val
         elif out_index == 1:
-            heading = turn(heading, val)
-            cur_loc = (cur_loc[0] + heading[0], cur_loc[1] + heading[1])
-            print_ascii(panels, cur_loc, heading)
+            draw_y = val
+        elif out_index == 2:
+            tile = val
+            if (draw_x, draw_y) == (-1, 0):
+                print(f"SCORE: {val}")
+            else:
+                if tile == BALL:
+                    ball_x_y = (draw_x, draw_y)
+
+                if tile == PADDLE:
+                    paddle_x_y = (draw_x, draw_y)
+                screen.set(draw_x, draw_y, tile)
+                screen.render()
         else:
             raise RuntimeError("More than 2 outputs since last input")
-        out_index += 1
+        out_index = (out_index + 1) % 3
 
     with open(input_file, "r", encoding="utf-8") as f:
         mem = parse_program(f.read())
-        run_intcode(mem, write_in, read_out)
+        mem[0] = 2  # quarters
+        print(mem)
 
-    print(sum(sum(row) for row in painted))
+        run_intcode(mem, write_in, read_out)
 
     return 0
 
